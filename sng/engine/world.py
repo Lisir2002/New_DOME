@@ -88,6 +88,12 @@ ACTION_TASKTYPE = {
     "inv": "retrieval", "help": "comprehension",
 }
 
+# 不会改变状态的规则（非法动作 / 已处于目标态）
+INVALID_RULES = {
+    "move_invalid", "take_invalid", "drop_invalid", "open_invalid",
+    "open_locked_no_key", "open_already", "invalid_action",
+}
+
 # 中文指令词表：目标词 -> 归一化 token
 _VERB_ZH = {"去": "go", "走到": "go", "拿": "take", "拾取": "take", "拿走": "take",
             "扔": "drop", "放下": "drop", "打开": "open", "查看": "look",
@@ -196,6 +202,10 @@ class MiniGameEngine:
         if a.verb in ("look", "inv", "help"):
             return f"{a.verb}_valid", True
         return "invalid_action", False
+
+    def rule_valid(self, rule_id: str) -> bool:
+        """该规则 id 是否为合法动作（会发生合法迁移 / 合法信息查询）。"""
+        return rule_id not in INVALID_RULES
 
     # ---- 状态迁移 + 槽更新 ----
     def transition_ops(self, rule_id: str, a: Action) -> list[tuple[str, str, object]]:

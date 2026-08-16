@@ -1,20 +1,34 @@
 """端到端管道测试：跑通一回合完整链路。"""
-import torch
+import pytest
 
 from sng.config import Config
+from sng.core.controller import Controller
 from sng.pipeline import SNGPipeline
 from sng.training import train
 
 
-def _make_pipe():
+@pytest.fixture(scope="module")
+def controller_state():
+    """控制器只训练一次；各测试基于同一权重 + 同一词表重建独立管道，互不串状态。"""
     cfg = Config()
     model, _ = train(cfg, epochs=30, n_rollouts=30, seed=7)
-    model.eval()
-    return cfg, SNGPipeline(cfg, model)
+    return model.state_dict(), model.vocab, cfg
 
 
-def test_full_turn_chain():
-    cfg, pipe = _make_pipe()
+@pytest.fixture()
+def make_pipe(controller_state):
+    state_dict, vocab, cfg = controller_state
+
+    def _mk():
+        model = Controller(cfg, vocab)
+        model.load_state_dict(state_dict)
+        model.eval()
+        return cfg, SNGPipeline(cfg, model)
+    return _mk
+
+
+def test_full_turn_chain(make_pipe):
+    cfg, pipe = make_pipe()
     out = pipe.turn("打开大门")
     assert "error" not in out
     assert out["rule"] in ("open_locked_with_key", "open_locked_no_key", "invalid_action")
@@ -25,8 +39,8 @@ def test_full_turn_chain():
     assert out["peak_mb"] <= cfg.memory_hard_mb
 
 
-def test_multi_turn_state_persistence():
-    _, pipe = _make_pipe()
+def test_multi_turn_state_persistence(make_pipe):
+    _, pipe = make_pipe()
     pipe.turn("打开大门")
     pipe.turn("背包")
     out = pipe.turn("查看")
@@ -34,16 +48,16 @@ def test_multi_turn_state_persistence():
     assert out["verify_ok"] is True
 
 
-def test_unparseable_input_routes_to_general_chat():
-    _, pipe = _make_pipe()
+def test_unparseable_input_routes_to_general_chat(make_pipe):
+    _, pipe = make_pipe()
     out = pipe.turn("完全无关的内容xyz")
     assert out["mode"] == "chat"
     assert out["answer"]
     assert "【回复】" in out["answer"]
 
 
-def test_general_chat_intents():
-    _, pipe = _make_pipe()
+def test_general_chat_intents(make_pipe):
+    _, pipe = make_pipe()
     intro = pipe.turn("你是谁")
     assert "SNG" in intro["answer"]
     greet = pipe.turn("你好")

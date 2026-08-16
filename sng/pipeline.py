@@ -42,11 +42,14 @@ class SNGPipeline:
             self.plugins[p.manifest.plugin_id] = p
         self.S = self.controller.ws.encode_state(self.engine.state)
         self.lang = lang
+        # 已执行的动作轨迹（供记忆插件等追踪状态；仅收录合法动作）
+        self.action_history: list[Action] = []
 
     def reset(self) -> None:
         self.engine.reset()
         self.S = self.controller.ws.encode_state(self.engine.state)
         self.bus.reset()
+        self.action_history = []
 
     # ---- 一回合 ----
     def turn(self, text: str, budget_mb: float | None = None,
@@ -66,6 +69,9 @@ class SNGPipeline:
         # 先提交状态到引擎：让插件/观察读到"动作后"的一致状态
         state_before = self.engine.state.clone()
         self._commit_to_engine(a, out["rule_id"])
+        # 记录合法动作到轨迹（记忆插件据此回忆状态，与引擎轨迹对齐）
+        if self.engine.rule_valid(out["rule_id"]):
+            self.action_history.append(a)
 
         # 池式总线：仲裁唤醒插件
         task_id = self.bus.dispatch(
@@ -81,7 +87,7 @@ class SNGPipeline:
             payload = {"state": self.engine.state, "state_before": state_before,
                        "action": a, "action_zh": self.engine.action_text(a, "zh"),
                        "text": self.engine.observe(self.lang),
-                       "room_zh": room_zh,
+                       "room_zh": room_zh, "history": list(self.action_history),
                        "target_lang": "en" if bilingual else "zh"}
             content, conf, claims = plugin.run(payload)
             self.bus.publish_result(pid, task_id, content, conf, claims)

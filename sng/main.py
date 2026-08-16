@@ -19,6 +19,7 @@ from sng.pipeline import SNGPipeline
 from sng.training import build_vocab, train
 
 MODEL_PATH = "/workspace/sng_controller.pt"
+MEMORY_MODEL_PATH = "/workspace/sng_memory.pt"
 
 
 def load_or_train(cfg: Config) -> Controller:
@@ -38,6 +39,8 @@ def load_or_train(cfg: Config) -> Controller:
 def main() -> None:
     ap = argparse.ArgumentParser(description="SNG 原型演示")
     ap.add_argument("--train", action="store_true", help="重新训练控制器")
+    ap.add_argument("--train-memory", action="store_true",
+                    help="专项训练记忆插件（记忆追踪器）")
     ap.add_argument("--lang", default="zh", choices=["zh", "en"])
     args = ap.parse_args()
 
@@ -48,6 +51,20 @@ def main() -> None:
         print(f"训练完成，模型已保存：{MODEL_PATH}")
     else:
         model = load_or_train(cfg)
+
+    # 记忆插件专项训练：动作轨迹 -> 当前状态（位置 / 背包 / 大门）
+    if args.train_memory:
+        from sng.engine.world import MiniGameEngine
+        from sng.plugins.memory_model import train_memory_tracker
+        print("开始记忆插件专项训练（记忆追踪器）...")
+        tracker = train_memory_tracker(MiniGameEngine(seed=1))
+        torch.save(tracker.state_dict(), MEMORY_MODEL_PATH)
+        print(f"记忆插件训练完成，已保存：{MEMORY_MODEL_PATH}")
+    elif os.path.exists(MEMORY_MODEL_PATH):
+        print(f"记忆插件已加载训练模型：{MEMORY_MODEL_PATH}")
+    else:
+        print("提示：记忆插件尚未训练，可运行 `python -m sng.main --train-memory` "
+              "启用神经记忆追踪。当前使用规则回退实现。")
 
     pipe = SNGPipeline(cfg, model, lang=args.lang)
     print("SNG 原型已就绪。输入指令（如 查看 / 去厨房 / 拾取苹果 / 打开大门），"
